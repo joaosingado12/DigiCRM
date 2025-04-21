@@ -1,76 +1,45 @@
 # src/scraper_cfm.py
-"""
-Scraper baseado nos endpoints internos do portal.cfm.org.br
-Etapas:
-1. POST /buscar_medicos   -> retorna lista (id, CRM, UF, nome resumido…)
-2. POST /buscar_medico    -> retorna detalhe completo a partir do ID_PESSOA
-"""
-
-import requests
 from typing import Dict
+import cloudscraper
 
-URL_SEARCH  = "https://portal.cfm.org.br/api_rest_php/api/v1/medicos/buscar_medicos"
-URL_DETAIL  = "https://portal.cfm.org.br/api_rest_php/api/v1/medicos/buscar_medico"
+API     = "https://www.consultacrm.com.br/api/index.php"
+API_KEY = "9601599027"            # sua chave
 
-HEADERS: Dict[str, str] = {
-    "User-Agent": "Mozilla/5.0 (X11; Linux x86_64)",
-    "Accept": "application/json, text/javascript, */*; q=0.01",
-    "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
-    "X-Requested-With": "XMLHttpRequest",
-    "Origin": "https://portal.cfm.org.br",
-    "Referer": "https://portal.cfm.org.br/busca-medicos",
-}
-
-def _payload_search(crm: str, uf: str) -> Dict[str, str]:
-    """Payload igual ao do formulário (campos vazios onde não usamos)."""
-    return {
-        "captcha": "",
-        "medico[nome]": "",
-        "medico[ufMedico]": uf,
-        "medico[crmMedico]": crm,
-        "medico[municipioMedico]": "",
-        "medico[tipoInscricaoMedico]": "",
-        "medico[situacaoMedico]": "",
-        "medico[detalheSituacaoMedico]": "",
-        "medico[especialidadeMedico]": "",
-        "medico[areaAtuacaoMedico]": "",
-        "page": 1,
-        "pageNumber": 1,
-        "pageSize": 10,
-    }
+scraper = cloudscraper.create_scraper(
+    browser={"browser": "chrome", "platform": "linux", "mobile": False}
+)
 
 def fetch_from_cfm(crm: str, uf: str) -> Dict[str, str]:
-    """
-    Retorna um dict padronizado com dados vindos do portal CFM.
-    Pode devolver {} se não encontrar ou em caso de bloqueio.
-    """
-    # 1) busca mínima
-    r = requests.post(URL_SEARCH, headers=HEADERS, data=_payload_search(crm, uf), timeout=15)
-    r.raise_for_status()
-    js = r.json()
-    dados = js.get("dados", [])
-    if not dados:
+    """Busca (crm, uf) na API ConsultaCRM e devolve dict padronizado."""
+    params = {
+        "tipo":    "crm",
+        "q":       crm,          # campo correto
+        "uf":      uf,
+        "destino": "json",
+        "chave":   API_KEY,
+    }
+
+    try:
+        r = scraper.get(API, params=params, timeout=20)
+        r.raise_for_status()
+        data = r.json()                         # sempre parsear
+    except Exception:
         return {}
 
-    id_pessoa = dados[0].get("ID_PESSOA")
-    if not id_pessoa:
+    # data = {"url":..., "total":..., "status":"true/false", "item":[ {...} ]}
+    itens = data.get("item")
+    if not itens:
         return {}
 
-    # 2) detalhe completo
-    r2 = requests.post(URL_DETAIL, headers=HEADERS, data={"idPessoa": id_pessoa}, timeout=15)
-    r2.raise_for_status()
-    det = r2.json().get("dados", {})
-    if not det:
-        return {}
+    d = itens[0]                               # primeiro resultado
 
-    # 3) normaliza ⇢ sempre caixa‑alta no portal → uso .title() p/ nome
     return {
-        "Official Name":      det.get("NM_MEDICO", "").title(),
-        "Medical specialty":  det.get("DS_ESPECIALIDADE", ""),
-        "City A1":            det.get("NM_MUNICIPIO", ""),
-        "State A1":           det.get("SG_UF", ""),
-        "Phone A1":           det.get("NR_TELEFONE", ""),      # raramente preenchido
+        "Official Name":     d.get("nome", "").title(),
+        "Medical specialty": d.get("profissao", ""),
+        "City A1":           "",                # API não traz cidade
+        "State A1":          d.get("uf", ""),
+        "Phone A1":          "",
     }
 
 if __name__ == "__main__":
-    print(fetch_from_cfm("97502", "SP"))   # teste
+    print(fetch_from_cfm("97502", "SP"))
