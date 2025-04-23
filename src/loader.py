@@ -22,3 +22,5 @@ if __name__ == "__main__":
     print(df.head(3))
     df.to_csv(OUTPUT, index=False)
     print(f"Planilha preparada em: {OUTPUT}")
+
+vai tomar no cuzinho, pode ser?
